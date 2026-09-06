@@ -44,8 +44,19 @@ wrong    /home/rjohnson130/.config/nvim
 
 `status` never touches the filesystem beyond reading it — it reports
 `missing`, `ok`, `wrong` (a symlink pointing somewhere else), or `conflict`
-(something exists at that path and it isn't a symlink at all). Actually
-creating the links is not implemented yet; see the roadmap below.
+(something exists at that path and it isn't a symlink at all).
+
+```
+$ ./dotlink apply ~/dotfiles.link ~/dotfiles
+created         /home/rjohnson130/.vimrc
+already linked  /home/rjohnson130/.zshrc
+```
+
+`apply` creates a symlink for every entry that's currently missing, making
+parent directories as needed. It never overwrites an existing file, wrong
+link, or already-correct link — those come back as skipped so nothing you
+didn't expect gets clobbered. Overwriting on purpose (`--force`) isn't
+implemented yet; see the roadmap below.
 
 ## what a bad manifest looks like
 
@@ -78,12 +89,14 @@ if err != nil {
 }
 
 statuses, err := dotlink.CheckStatus("/home/me/dotfiles", m)
+
+results, err := dotlink.Apply("/home/me/dotfiles", m)
 ```
 
 ## status
 
-Early skeleton. Parsing and status checking work; applying the links does
-not yet.
+Early skeleton. Parsing, status checking, and applying missing links all
+work. Force/backup handling for conflicting targets doesn't yet.
 
 ## license
 

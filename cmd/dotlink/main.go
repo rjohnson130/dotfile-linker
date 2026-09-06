@@ -20,6 +20,8 @@ func main() {
 		err = cmdCheck(os.Args[2:])
 	case "status":
 		err = cmdStatus(os.Args[2:])
+	case "apply":
+		err = cmdApply(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -33,7 +35,8 @@ func main() {
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
   dotlink check <manifest>              parse a manifest and report errors
-  dotlink status <manifest> <root-dir>  show link state for each entry`)
+  dotlink status <manifest> <root-dir>  show link state for each entry
+  dotlink apply <manifest> <root-dir>   create missing symlinks`)
 }
 
 func cmdCheck(args []string) error {
@@ -67,6 +70,32 @@ func cmdStatus(args []string) error {
 		if s.State == dotlink.StateWrongLink {
 			fmt.Printf("         currently points to %s\n", s.Actual)
 		}
+	}
+	return nil
+}
+
+func cmdApply(args []string) error {
+	if len(args) != 2 {
+		usage()
+		os.Exit(2)
+	}
+	m, err := parseManifest(args[0])
+	if err != nil {
+		return err
+	}
+	results, err := dotlink.Apply(args[1], m)
+	if err != nil {
+		return err
+	}
+	skipped := 0
+	for _, r := range results {
+		fmt.Printf("%-8s %s\n", r.Action, r.Link.Target)
+		if r.Action != dotlink.ActionCreated {
+			skipped++
+		}
+	}
+	if skipped > 0 {
+		fmt.Printf("%d link(s) already exist and were left alone\n", skipped)
 	}
 	return nil
 }
