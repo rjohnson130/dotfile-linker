@@ -2,6 +2,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -34,9 +35,12 @@ func main() {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `usage:
-  dotlink check <manifest>              parse a manifest and report errors
-  dotlink status <manifest> <root-dir>  show link state for each entry
-  dotlink apply <manifest> <root-dir>   create missing symlinks`)
+  dotlink check <manifest>                    parse a manifest and report errors
+  dotlink status <manifest> <root-dir>        show link state for each entry
+  dotlink apply [--force] <manifest> <root-dir>  create missing symlinks
+
+  --force  also replace conflicting files and wrong links, after moving
+           whatever was at the target aside as a .bak file`)
 }
 
 func cmdCheck(args []string) error {
@@ -75,22 +79,34 @@ func cmdStatus(args []string) error {
 }
 
 func cmdApply(args []string) error {
-	if len(args) != 2 {
+	fs := flag.NewFlagSet("apply", flag.ContinueOnError)
+	force := fs.Bool("force", false, "replace conflicting files and wrong links, backing them up first")
+	fs.Usage = usage
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	rest := fs.Args()
+	if len(rest) != 2 {
 		usage()
 		os.Exit(2)
 	}
-	m, err := parseManifest(args[0])
+
+	m, err := parseManifest(rest[0])
 	if err != nil {
 		return err
 	}
-	results, err := dotlink.Apply(args[1], m)
+	results, err := dotlink.Apply(rest[1], m, dotlink.ApplyOptions{Force: *force})
 	if err != nil {
 		return err
 	}
 	skipped := 0
 	for _, r := range results {
 		fmt.Printf("%-8s %s\n", r.Action, r.Link.Target)
-		if r.Action != dotlink.ActionCreated {
+		switch r.Action {
+		case dotlink.ActionCreated:
+		case dotlink.ActionReplaced:
+			fmt.Printf("         previous target backed up to %s\n", r.BackupPath)
+		default:
 			skipped++
 		}
 	}

@@ -18,6 +18,9 @@ const (
 	ActionSkippedConflict
 	// ActionSkippedWrongLink means a symlink to somewhere else already exists at the target.
 	ActionSkippedWrongLink
+	// ActionReplaced means an existing file or wrong link was moved aside and
+	// a fresh symlink was created in its place, because Force was set.
+	ActionReplaced
 )
 
 func (a ApplyAction) String() string {
@@ -30,6 +33,8 @@ func (a ApplyAction) String() string {
 		return "skipped, file exists at target"
 	case ActionSkippedWrongLink:
 		return "skipped, wrong link exists at target"
+	case ActionReplaced:
+		return "replaced"
 	default:
 		return "unknown"
 	}
@@ -39,14 +44,27 @@ func (a ApplyAction) String() string {
 type ApplyResult struct {
 	Link   Link
 	Action ApplyAction
+	// BackupPath is set when Action is ActionReplaced and holds the path the
+	// previous target was moved to before the new symlink was created.
+	BackupPath string
+}
+
+// ApplyOptions controls how Apply handles targets that already exist.
+type ApplyOptions struct {
+	// Force makes Apply replace a conflicting file or a symlink pointing at
+	// the wrong place, instead of skipping it. The previous target is moved
+	// aside rather than deleted, so it comes back as ActionReplaced with a
+	// BackupPath rather than being lost.
+	Force bool
 }
 
 // Apply creates symlinks for every manifest link whose target is missing.
-// It never touches a target that already exists in some form, whether
-// that's a correct link, a link to the wrong place, or a plain file -
-// those come back as skipped results rather than being overwritten.
-// Forcing an overwrite is a separate, not-yet-implemented step.
-func Apply(root string, m *Manifest) ([]ApplyResult, error) {
+// With the zero ApplyOptions it never touches a target that already exists
+// in some form, whether that's a correct link, a link to the wrong place, or
+// a plain file - those come back as skipped results rather than being
+// overwritten. Set Force to replace conflicts and wrong links instead,
+// backing up whatever was there first.
+func Apply(root string, m *Manifest, opts ApplyOptions) ([]ApplyResult, error) {
 	statuses, err := CheckStatus(root, m)
 	if err != nil {
 		return nil, err
@@ -58,9 +76,25 @@ func Apply(root string, m *Manifest) ([]ApplyResult, error) {
 		case StateLinked:
 			out = append(out, ApplyResult{Link: s.Link, Action: ActionSkippedLinked})
 		case StateConflict:
-			out = append(out, ApplyResult{Link: s.Link, Action: ActionSkippedConflict})
+			if !opts.Force {
+				out = append(out, ApplyResult{Link: s.Link, Action: ActionSkippedConflict})
+				continue
+			}
+			result, err := replace(root, s.Link)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, result)
 		case StateWrongLink:
-			out = append(out, ApplyResult{Link: s.Link, Action: ActionSkippedWrongLink})
+			if !opts.Force {
+				out = append(out, ApplyResult{Link: s.Link, Action: ActionSkippedWrongLink})
+				continue
+			}
+			result, err := replace(root, s.Link)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, result)
 		case StateMissing:
 			source, err := filepath.Abs(filepath.Join(root, s.Link.Source))
 			if err != nil {
@@ -76,4 +110,39 @@ func Apply(root string, m *Manifest) ([]ApplyResult, error) {
 		}
 	}
 	return out, nil
+}
+
+// replace moves whatever currently sits at link.Target out of the way and
+// creates a fresh symlink to its source in its place.
+func replace(root string, link Link) (ApplyResult, error) {
+	source, err := filepath.Abs(filepath.Join(root, link.Source))
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("resolving source for %s: %w", link.Target, err)
+	}
+
+	backup, err := backupPath(link.Target)
+	if err != nil {
+		return ApplyResult{}, fmt.Errorf("choosing backup path for %s: %w", link.Target, err)
+	}
+	if err := os.Rename(link.Target, backup); err != nil {
+		return ApplyResult{}, fmt.Errorf("backing up %s: %w", link.Target, err)
+	}
+	if err := os.Symlink(source, link.Target); err != nil {
+		return ApplyResult{}, fmt.Errorf("linking %s: %w", link.Target, err)
+	}
+	return ApplyResult{Link: link, Action: ActionReplaced, BackupPath: backup}, nil
+}
+
+// backupPath returns a path next to target that nothing currently occupies,
+// preferring target+".bak" and falling back to a numbered suffix.
+func backupPath(target string) (string, error) {
+	candidate := target + ".bak"
+	for i := 1; ; i++ {
+		if _, err := os.Lstat(candidate); os.IsNotExist(err) {
+			return candidate, nil
+		} else if err != nil {
+			return "", err
+		}
+		candidate = fmt.Sprintf("%s.bak.%d", target, i)
+	}
 }

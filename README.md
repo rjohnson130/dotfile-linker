@@ -53,10 +53,20 @@ already linked  /home/rjohnson130/.zshrc
 ```
 
 `apply` creates a symlink for every entry that's currently missing, making
-parent directories as needed. It never overwrites an existing file, wrong
-link, or already-correct link — those come back as skipped so nothing you
-didn't expect gets clobbered. Overwriting on purpose (`--force`) isn't
-implemented yet; see the roadmap below.
+parent directories as needed. By default it never overwrites an existing
+file, wrong link, or already-correct link — those come back as skipped so
+nothing you didn't expect gets clobbered.
+
+```
+$ ./dotlink apply --force ~/dotfiles.link ~/dotfiles
+replaced        /home/rjohnson130/.zshrc
+         previous target backed up to /home/rjohnson130/.zshrc.bak
+```
+
+`--force` replaces a conflicting file or a wrong link instead of skipping
+it, but it doesn't delete anything: whatever was at the target gets moved to
+a `.bak` path (or `.bak.1`, `.bak.2`, ... if that's taken) right before the
+new symlink goes in.
 
 ## what a bad manifest looks like
 
@@ -90,13 +100,14 @@ if err != nil {
 
 statuses, err := dotlink.CheckStatus("/home/me/dotfiles", m)
 
-results, err := dotlink.Apply("/home/me/dotfiles", m)
+results, err := dotlink.Apply("/home/me/dotfiles", m, dotlink.ApplyOptions{Force: false})
 ```
 
 ## status
 
-Early skeleton. Parsing, status checking, and applying missing links all
-work. Force/backup handling for conflicting targets doesn't yet.
+Early skeleton. Parsing, status checking, applying missing links, and
+`--force` with backups for conflicting targets all work. Directory sources,
+ignore patterns, and a test suite don't yet.
 
 ## license
 
