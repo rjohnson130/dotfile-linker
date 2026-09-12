@@ -2,6 +2,7 @@ package dotlink
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -46,9 +47,17 @@ type LinkStatus struct {
 
 // CheckStatus resolves every link's source against root and reports how the
 // target path currently compares to it, without changing anything on disk.
+// A manifest entry whose source is a directory is expanded into one link per
+// file found inside it (recursively), so a single "target = source" line can
+// stand for an entire tree instead of one symlink to the directory itself.
 func CheckStatus(root string, m *Manifest) ([]LinkStatus, error) {
-	out := make([]LinkStatus, 0, len(m.Links))
-	for _, link := range m.Links {
+	links, err := expandLinks(root, m.Links)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]LinkStatus, 0, len(links))
+	for _, link := range links {
 		wantSource, err := filepath.Abs(filepath.Join(root, link.Source))
 		if err != nil {
 			return nil, fmt.Errorf("resolving source for %s: %w", link.Target, err)
@@ -84,6 +93,54 @@ func CheckStatus(root string, m *Manifest) ([]LinkStatus, error) {
 			out = append(out, LinkStatus{Link: link, State: StateLinked})
 		} else {
 			out = append(out, LinkStatus{Link: link, State: StateWrongLink, Actual: actual})
+		}
+	}
+	return out, nil
+}
+
+// expandLinks replaces any link whose source resolves to a directory with
+// one link per file found inside it, walked recursively, so callers only
+// ever deal with individual files rather than trying to symlink a whole
+// directory tree as a single unit. Links whose source is a plain file, or
+// doesn't exist yet, pass through unchanged.
+func expandLinks(root string, links []Link) ([]Link, error) {
+	out := make([]Link, 0, len(links))
+	for _, link := range links {
+		sourcePath := filepath.Join(root, link.Source)
+		info, err := os.Stat(sourcePath)
+		if os.IsNotExist(err) {
+			out = append(out, link)
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("resolving source for %s: %w", link.Target, err)
+		}
+		if !info.IsDir() {
+			out = append(out, link)
+			continue
+		}
+
+		err = filepath.WalkDir(sourcePath, func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(sourcePath, path)
+			if err != nil {
+				return err
+			}
+			out = append(out, Link{
+				Target: filepath.Join(link.Target, rel),
+				Source: filepath.Join(link.Source, rel),
+				Line:   link.Line,
+				Col:    link.Col,
+			})
+			return nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("walking source directory %s: %w", sourcePath, err)
 		}
 	}
 	return out, nil

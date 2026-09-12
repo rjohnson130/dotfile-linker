@@ -42,6 +42,11 @@ wrong    /home/rjohnson130/.config/nvim
          currently points to /home/rjohnson130/old-nvim-config
 ```
 
+If `source` is a directory, it's expanded into one link per file found
+inside it (recursively) rather than symlinking the directory itself, so
+`~/.config/nvim = nvim` mirrors every file under `nvim/` into
+`~/.config/nvim/` individually.
+
 `status` never touches the filesystem beyond reading it — it reports
 `missing`, `ok`, `wrong` (a symlink pointing somewhere else), or `conflict`
 (something exists at that path and it isn't a symlink at all).
@@ -105,9 +110,9 @@ results, err := dotlink.Apply("/home/me/dotfiles", m, dotlink.ApplyOptions{Force
 
 ## status
 
-Early skeleton. Parsing, status checking, applying missing links, and
-`--force` with backups for conflicting targets all work. Directory sources,
-ignore patterns, and a test suite don't yet.
+Early skeleton. Parsing, status checking, applying missing links, `--force`
+with backups for conflicting targets, and recursive directory sources all
+work. Ignore patterns and a test suite don't yet.
 
 ## license
 
