@@ -47,6 +47,20 @@ inside it (recursively) rather than symlinking the directory itself, so
 `~/.config/nvim = nvim` mirrors every file under `nvim/` into
 `~/.config/nvim/` individually.
 
+A line starting with `!` defines a glob pattern (same syntax as
+`filepath.Match`) that's skipped during that expansion, matched against
+either a file's base name or its path relative to the directory being
+walked:
+
+```
+!.DS_Store
+!*.swp
+~/.config/nvim = nvim
+```
+
+Ignore patterns apply to every directory source in the manifest, not just
+the ones below them.
+
 `status` never touches the filesystem beyond reading it — it reports
 `missing`, `ok`, `wrong` (a symlink pointing somewhere else), or `conflict`
 (something exists at that path and it isn't a symlink at all).
@@ -111,8 +125,8 @@ results, err := dotlink.Apply("/home/me/dotfiles", m, dotlink.ApplyOptions{Force
 ## status
 
 Early skeleton. Parsing, status checking, applying missing links, `--force`
-with backups for conflicting targets, and recursive directory sources all
-work. Ignore patterns and a test suite don't yet.
+with backups for conflicting targets, recursive directory sources, and
+ignore patterns all work. A test suite doesn't yet.
 
 ## license
 

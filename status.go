@@ -50,8 +50,10 @@ type LinkStatus struct {
 // A manifest entry whose source is a directory is expanded into one link per
 // file found inside it (recursively), so a single "target = source" line can
 // stand for an entire tree instead of one symlink to the directory itself.
+// Files and subdirectories matching one of the manifest's ignore patterns
+// are left out of that expansion.
 func CheckStatus(root string, m *Manifest) ([]LinkStatus, error) {
-	links, err := expandLinks(root, m.Links)
+	links, err := expandLinks(root, m.Links, m.Ignore)
 	if err != nil {
 		return nil, err
 	}
@@ -102,8 +104,9 @@ func CheckStatus(root string, m *Manifest) ([]LinkStatus, error) {
 // one link per file found inside it, walked recursively, so callers only
 // ever deal with individual files rather than trying to symlink a whole
 // directory tree as a single unit. Links whose source is a plain file, or
-// doesn't exist yet, pass through unchanged.
-func expandLinks(root string, links []Link) ([]Link, error) {
+// doesn't exist yet, pass through unchanged. Any file or directory matching
+// one of the ignore glob patterns is left out of the expansion entirely.
+func expandLinks(root string, links []Link, ignore []string) ([]Link, error) {
 	out := make([]Link, 0, len(links))
 	for _, link := range links {
 		sourcePath := filepath.Join(root, link.Source)
@@ -124,12 +127,25 @@ func expandLinks(root string, links []Link) ([]Link, error) {
 			if err != nil {
 				return err
 			}
-			if d.IsDir() {
+			if path == sourcePath {
 				return nil
 			}
 			rel, err := filepath.Rel(sourcePath, path)
 			if err != nil {
 				return err
+			}
+			ignored, err := matchesAny(ignore, d.Name(), rel)
+			if err != nil {
+				return err
+			}
+			if ignored {
+				if d.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+			if d.IsDir() {
+				return nil
 			}
 			out = append(out, Link{
 				Target: filepath.Join(link.Target, rel),
@@ -144,4 +160,24 @@ func expandLinks(root string, links []Link) ([]Link, error) {
 		}
 	}
 	return out, nil
+}
+
+// matchesAny reports whether name or rel matches any of the given glob
+// patterns. name is a file's base name and rel is its path relative to the
+// directory being walked, so a pattern like "*.swp" matches by name and one
+// like "cache/*" matches by relative path.
+func matchesAny(patterns []string, name, rel string) (bool, error) {
+	for _, p := range patterns {
+		if ok, err := filepath.Match(p, name); err != nil {
+			return false, err
+		} else if ok {
+			return true, nil
+		}
+		if ok, err := filepath.Match(p, rel); err != nil {
+			return false, err
+		} else if ok {
+			return true, nil
+		}
+	}
+	return false, nil
 }

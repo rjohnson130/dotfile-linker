@@ -25,6 +25,11 @@ type Link struct {
 // Manifest is a parsed, validated set of links.
 type Manifest struct {
 	Links []Link
+	// Ignore holds glob patterns (filepath.Match syntax) collected from "!"
+	// lines. They apply during directory expansion, matched against both a
+	// file's base name and its path relative to the source directory being
+	// walked, so "!.DS_Store" and "!cache/*" both work as expected.
+	Ignore []string
 }
 
 // ParseError describes exactly where a manifest failed to parse, including
@@ -43,13 +48,19 @@ func (e *ParseError) Error() string {
 }
 
 // Parse reads a manifest of "target = source" lines, one per line. Blank
-// lines and lines starting with # (after leading whitespace) are ignored.
+// lines and lines starting with # (after leading whitespace) are ignored. A
+// line starting with ! instead defines a glob pattern (filepath.Match
+// syntax) that CheckStatus and Apply skip over when expanding a directory
+// source into individual files.
 //
 //	~/.vimrc        = vim/vimrc
 //	~/.config/nvim  = nvim
+//	!*.swp
+//	!.DS_Store
 func Parse(r io.Reader, filename string) (*Manifest, error) {
 	scanner := bufio.NewScanner(r)
 	var links []Link
+	var ignore []string
 	seen := make(map[string]Link)
 
 	line := 0
@@ -58,6 +69,25 @@ func Parse(r io.Reader, filename string) (*Manifest, error) {
 		raw := scanner.Text()
 		trimmed := strings.TrimSpace(raw)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "!") {
+			pattern := strings.TrimSpace(trimmed[1:])
+			col := colOf(raw, 0)
+			if pattern == "" {
+				return nil, &ParseError{
+					File: filename, Line: line, Col: col, Src: raw,
+					Msg: "empty ignore pattern after '!'",
+				}
+			}
+			if _, err := filepath.Match(pattern, "probe"); err != nil {
+				return nil, &ParseError{
+					File: filename, Line: line, Col: col, Src: raw,
+					Msg: fmt.Sprintf("invalid ignore pattern %q: %s", pattern, err),
+				}
+			}
+			ignore = append(ignore, pattern)
 			continue
 		}
 
@@ -110,7 +140,7 @@ func Parse(r io.Reader, filename string) (*Manifest, error) {
 		return nil, fmt.Errorf("reading %s: %w", filename, err)
 	}
 
-	return &Manifest{Links: links}, nil
+	return &Manifest{Links: links, Ignore: ignore}, nil
 }
 
 // colOf returns the 1-indexed column of the first non-whitespace rune in
