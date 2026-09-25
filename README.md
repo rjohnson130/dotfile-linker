@@ -126,7 +126,8 @@ results, err := dotlink.Apply("/home/me/dotfiles", m, dotlink.ApplyOptions{Force
 
 Early skeleton. Parsing, status checking, applying missing links, `--force`
 with backups for conflicting targets, recursive directory sources, and
-ignore patterns all work. A test suite doesn't yet.
+ignore patterns all work. The parser and status checker have a test suite;
+`apply` and the CLI itself don't yet.
 
 ## license
 
